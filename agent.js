@@ -5,7 +5,7 @@
  * Polls GitHub for new messages and responds as Amber.
  * Maintains structured memory of people, relationships, and action items.
  *
- * Adapted from poke-agent-cloud (Caleb's personal agent).
+ * Adapted from loop-agent-cloud (Caleb's personal agent).
  * Deployed on Railway.
  */
 
@@ -17,9 +17,8 @@ import { createServer } from 'http'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY
-const LOOP_AUTH_KEY = process.env.LOOP_AUTH_KEY
-const LOOP_SECRET_KEY = process.env.LOOP_SECRET_KEY
-const LOOP_SENDER_NAME = process.env.LOOP_SENDER_NAME
+const LOOP_API_KEY = process.env.LOOP_API_KEY
+const LOOP_SENDER_ID = process.env.LOOP_SENDER_ID
 const SAGAR_PHONE_NUMBER = process.env.SAGAR_PHONE_NUMBER
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 const AMBER_API_URL = process.env.AMBER_API_URL // amber-core API for memory ops
@@ -243,7 +242,7 @@ async function callClaude(conversationMessages, sagarContext) {
 }
 
 function buildSystemPrompt(sagarContext) {
-  return `You are Amber, Sagar's personal relationship intelligence assistant, having a conversation via iMessage through the Poke platform.
+  return `You are Amber, Sagar's personal relationship intelligence assistant, having a conversation via iMessage through the Loop Message.
 
 FULL CONTEXT ABOUT SAGAR AND HIS WORLD:
 ${sagarContext}
@@ -307,25 +306,25 @@ async function storeMemory(personName, memoryText, source = 'imessage') {
 }
 
 // ============================================================================
-// POKE DELIVERY
+// LOOP MESSAGE DELIVERY
 // ============================================================================
 
-function loopAuthHeader() {
-  const encoded = Buffer.from(`${LOOP_AUTH_KEY}:${LOOP_SECRET_KEY}`).toString('base64')
-  return `Basic ${encoded}`
-}
-
 async function sendToUser(message) {
-  const response = await fetch('https://server.loopmessage.com/api/v1/message/send/', {
+  const MAX_LENGTH = 2000
+  const text = message.length > MAX_LENGTH
+    ? message.substring(0, MAX_LENGTH - 30) + '\n\n[Message truncated]'
+    : message
+
+  const response = await fetch('https://a.loopmessage.com/api/v1/message/send/', {
     method: 'POST',
     headers: {
-      'Authorization': loopAuthHeader(),
+      'Authorization': LOOP_API_KEY,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      recipient: SAGAR_PHONE_NUMBER,
-      text: message,
-      sender: LOOP_SENDER_NAME
+      contact: SAGAR_PHONE_NUMBER,
+      text,
+      sender: LOOP_SENDER_ID
     })
   })
   if (!response.ok) {
@@ -395,7 +394,7 @@ async function processMessages() {
     console.log(`Amber: "${amberResponse.substring(0, 60)}..."`)
 
     await sendToUser(amberResponse)
-    console.log('Delivered via Poke')
+    console.log('Delivered via Loop Message')
 
     const result = await logReply(content, sha, amberResponse)
     lastProcessedHash = result.content.sha
@@ -426,7 +425,7 @@ async function start() {
   console.log('---\n')
 
   // Check required env vars
-  const required = ['CLAUDE_API_KEY', 'LOOP_AUTH_KEY', 'LOOP_SECRET_KEY', 'SAGAR_PHONE_NUMBER', 'GITHUB_TOKEN']
+  const required = ['CLAUDE_API_KEY', 'LOOP_API_KEY', 'LOOP_SENDER_ID', 'SAGAR_PHONE_NUMBER', 'GITHUB_TOKEN']
   const missing = required.filter(k => !process.env[k])
   if (missing.length > 0) {
     console.error(`Missing required env vars: ${missing.join(', ')}`)
