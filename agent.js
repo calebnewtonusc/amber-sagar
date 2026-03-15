@@ -445,31 +445,35 @@ async function handleWebhookMessage(from, text, messageId) {
   }
   lastWebhookMessageId = messageId
 
-  if (isProcessing) {
-    setTimeout(() => handleWebhookMessage(from, text, messageId), 3000)
-    return
-  }
+  if (isProcessing) return
+
   isProcessing = true
   try {
-    const sagarContext = await loadSagarContext()
+    // Load full conversation history + context so Amber has memory
+    const [{ content, sha }, sagarContext] = await Promise.all([
+      fetchMessages(),
+      loadSagarContext()
+    ])
 
-    // Build minimal single-turn message for webhook
-    const conversationMessages = [{ role: 'user', content: text }]
+    // Append the incoming message to GitHub first
+    const now = new Date()
+    const userEntry = `\n## ${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]} - Sagar\n\n**From:** Sagar\n**Timestamp:** ${now.toISOString()}\n\n${text}\n\n---\n`
+    const withUser = content + userEntry
+    const userWriteResult = await writeGitHubFile(GITHUB_REPO, MESSAGE_FILE, withUser, 'Sagar message via webhook', sha)
+
+    // Parse the full updated history so Claude has context
+    const updatedContent = withUser
+    const messages = parseMessages(updatedContent)
+    const conversationMessages = buildConversationHistory(messages)
 
     const reply = await callClaude(conversationMessages, sagarContext)
     await sendToUser(reply)
 
-    // Append this exchange to the GitHub conversation thread
-    const { content, sha } = await fetchMessages()
-    const now = new Date()
-    const userEntry = `\n## ${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]} - Sagar\n\n**From:** Sagar\n**Timestamp:** ${now.toISOString()}\n\n${text}\n\n---\n`
-    const withUser = content + userEntry
+    // Log Amber's reply
     const amberEntry = `\n## ${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]} - Amber Response\n\n**From:** Amber\n**Timestamp:** ${now.toISOString()}\n\n${reply}\n\n---\n`
     const withAmber = withUser + amberEntry
-
-    // Get updated sha after user entry write
-    const userWriteResult = await writeGitHubFile(GITHUB_REPO, MESSAGE_FILE, withAmber, 'Webhook exchange', sha)
-    lastProcessedHash = userWriteResult.content.sha
+    const amberWriteResult = await writeGitHubFile(GITHUB_REPO, MESSAGE_FILE, withAmber, 'Amber response', userWriteResult.content.sha)
+    lastProcessedHash = amberWriteResult.content.sha
     processCount++
 
     console.log('Webhook reply sent and logged')
