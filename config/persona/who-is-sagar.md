@@ -10,6 +10,7 @@ This file is a living document that Amber uses to understand who Sagar is.
 
 - **Full name**: Sagar [last name]
 - **Location**: [city]
+- **Phone**: +16308859331
 - **Age**: [age]
 
 ---
