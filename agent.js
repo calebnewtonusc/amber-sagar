@@ -255,7 +255,10 @@ async function callClaude(conversationMessages, sagarContext) {
   }
 
   const data = await response.json()
-  return data.content[0].text
+  return data.content
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
 }
 
 function buildSystemPrompt(sagarContext) {
