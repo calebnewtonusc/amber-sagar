@@ -32,6 +32,7 @@ let lastProcessedHash = null
 let isProcessing = false
 let processCount = 0
 let lastError = null
+let lastWebhookMessageId = null
 
 // ============================================================================
 // HEALTH SERVER (required by Railway)
@@ -436,20 +437,42 @@ async function processMessages() {
 // WEBHOOK HANDLER — real-time Loop Message ingestion
 // ============================================================================
 
-let isProcessing = false
-
 async function handleWebhookMessage(from, text, messageId) {
+  // Deduplicate — Loop can send duplicates
+  if (messageId && messageId === lastWebhookMessageId) {
+    console.log(`Duplicate webhook message ${messageId}, skipping`)
+    return
+  }
+  lastWebhookMessageId = messageId
+
   if (isProcessing) {
     setTimeout(() => handleWebhookMessage(from, text, messageId), 3000)
     return
   }
   isProcessing = true
   try {
-    const context = await loadContext()
-    const reply = await callClaude(text, context)
+    const sagarContext = await loadSagarContext()
+
+    // Build minimal single-turn message for webhook
+    const conversationMessages = [{ role: 'user', content: text }]
+
+    const reply = await callClaude(conversationMessages, sagarContext)
     await sendToUser(reply)
-    await appendToConversation(from, text, reply).catch(() => {})
-    console.log('✅ Webhook reply sent')
+
+    // Append this exchange to the GitHub conversation thread
+    const { content, sha } = await fetchMessages()
+    const now = new Date()
+    const userEntry = `\n## ${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]} - Sagar\n\n**From:** Sagar\n**Timestamp:** ${now.toISOString()}\n\n${text}\n\n---\n`
+    const withUser = content + userEntry
+    const amberEntry = `\n## ${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]} - Amber Response\n\n**From:** Amber\n**Timestamp:** ${now.toISOString()}\n\n${reply}\n\n---\n`
+    const withAmber = withUser + amberEntry
+
+    // Get updated sha after user entry write
+    const userWriteResult = await writeGitHubFile(GITHUB_REPO, MESSAGE_FILE, withAmber, 'Webhook exchange', sha)
+    lastProcessedHash = userWriteResult.content.sha
+    processCount++
+
+    console.log('Webhook reply sent and logged')
   } catch (err) {
     console.error('Webhook handler error:', err.message)
     try { await sendToUser("I hit an error — try again in a sec.") } catch {}
@@ -468,7 +491,11 @@ async function start() {
   console.log('---\n')
 
   // Check required env vars
-  const required = ['CLAUDE_API_KEY', 'LOOP_API_KEY', 'LOOP_SENDER_ID', 'SAGAR_PHONE_NUMBER', 'GITHUB_TOKEN']
+  if (!process.env.CLAUDE_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    console.error('Missing required env var: ANTHROPIC_API_KEY (or CLAUDE_API_KEY)')
+    process.exit(1)
+  }
+  const required = ['LOOP_API_KEY', 'LOOP_SENDER_ID', 'SAGAR_PHONE_NUMBER', 'GITHUB_TOKEN']
   const missing = required.filter(k => !process.env[k])
   if (missing.length > 0) {
     console.error(`Missing required env vars: ${missing.join(', ')}`)
