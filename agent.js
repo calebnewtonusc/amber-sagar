@@ -17,7 +17,10 @@ import { createServer } from 'http'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY
-const POKE_API_KEY = process.env.POKE_API_KEY
+const LOOP_AUTH_KEY = process.env.LOOP_AUTH_KEY
+const LOOP_SECRET_KEY = process.env.LOOP_SECRET_KEY
+const LOOP_SENDER_NAME = process.env.LOOP_SENDER_NAME
+const SAGAR_PHONE_NUMBER = process.env.SAGAR_PHONE_NUMBER
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 const AMBER_API_URL = process.env.AMBER_API_URL // amber-core API for memory ops
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '2000', 10)
@@ -307,16 +310,28 @@ async function storeMemory(personName, memoryText, source = 'imessage') {
 // POKE DELIVERY
 // ============================================================================
 
+function loopAuthHeader() {
+  const encoded = Buffer.from(`${LOOP_AUTH_KEY}:${LOOP_SECRET_KEY}`).toString('base64')
+  return `Basic ${encoded}`
+}
+
 async function sendToUser(message) {
-  const response = await fetch('https://poke.com/api/v1/inbound-sms/webhook', {
+  const response = await fetch('https://server.loopmessage.com/api/v1/message/send/', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${POKE_API_KEY}`,
+      'Authorization': loopAuthHeader(),
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({
+      recipient: SAGAR_PHONE_NUMBER,
+      text: message,
+      sender: LOOP_SENDER_NAME
+    })
   })
-  if (!response.ok) throw new Error(`Poke delivery failed: ${response.status}`)
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Loop Message error: ${response.status} ${err}`)
+  }
   return await response.json()
 }
 
@@ -411,7 +426,7 @@ async function start() {
   console.log('---\n')
 
   // Check required env vars
-  const required = ['CLAUDE_API_KEY', 'POKE_API_KEY', 'GITHUB_TOKEN']
+  const required = ['CLAUDE_API_KEY', 'LOOP_AUTH_KEY', 'LOOP_SECRET_KEY', 'SAGAR_PHONE_NUMBER', 'GITHUB_TOKEN']
   const missing = required.filter(k => !process.env[k])
   if (missing.length > 0) {
     console.error(`Missing required env vars: ${missing.join(', ')}`)
