@@ -1,0 +1,17 @@
+{
+  "name": "amber-sagar",
+  "version": "1.0.0",
+  "description": "Amber — Sagar's iMessage-first relationship intelligence agent",
+  "type": "module",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "dev": "node --watch agent.js"
+  },
+  "engines": {
+    "node": ">=20.x"
+  },
+  "keywords": ["amber", "sagar", "agent", "imessage", "claude", "relationships"],
+  "author": "Caleb Newton",
+  "license": "MIT"
+}
