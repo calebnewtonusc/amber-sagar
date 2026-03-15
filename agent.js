@@ -38,7 +38,23 @@ let lastError = null
 // ============================================================================
 
 const server = createServer((req, res) => {
-  if (req.url === '/health') {
+  if (req.method === 'POST' && req.url === '/webhook') {
+      let body = ''
+      req.on('data', chunk => { body += chunk.toString() })
+      req.on('end', async () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ received: true }))
+        try {
+          const payload = JSON.parse(body)
+          if (payload.event === 'message_inbound' && payload.text) {
+            console.log(`📨 Loop webhook from ${payload.contact}: "${payload.text.substring(0,60)}"`)
+            await handleWebhookMessage(payload.contact, payload.text, payload.message_id)
+          }
+        } catch (err) {
+          console.error('Webhook parse error:', err.message)
+        }
+      })
+    } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       status: 'running',
@@ -414,6 +430,33 @@ async function processMessages() {
 // ============================================================================
 // STARTUP
 // ============================================================================
+
+
+// ============================================================================
+// WEBHOOK HANDLER — real-time Loop Message ingestion
+// ============================================================================
+
+let isProcessing = false
+
+async function handleWebhookMessage(from, text, messageId) {
+  if (isProcessing) {
+    setTimeout(() => handleWebhookMessage(from, text, messageId), 3000)
+    return
+  }
+  isProcessing = true
+  try {
+    const context = await loadContext()
+    const reply = await callClaude(text, context)
+    await sendToUser(reply)
+    await appendToConversation(from, text, reply).catch(() => {})
+    console.log('✅ Webhook reply sent')
+  } catch (err) {
+    console.error('Webhook handler error:', err.message)
+    try { await sendToUser("I hit an error — try again in a sec.") } catch {}
+  } finally {
+    isProcessing = false
+  }
+}
 
 async function start() {
   console.log('Starting Amber — Sagar\'s Relationship Intelligence Agent')
